@@ -1,11 +1,16 @@
-
+# install and load libraries ---------------------------------------------------
 install.packages("WGCNA")
 library(WGCNA)
 options(stringsAsFactors = FALSE)
 
 # prepare expression data ------------------------------------------------------
+# set paths to input files 
+expressionFile <- "" # RDS file with DGEList objecy
+groupFile <- "" # vector of sample groups 
+
 # load data
-dgeDispersion <- readRDS("dgeDispersion.rds")
+dgeDispersion <- readRDS(expressionFile)
+groups <- readRDS(groupFile)
 
 logCPM <- cpm(dgeDispersion, log=TRUE)
 
@@ -22,10 +27,10 @@ if (!gsg$allOK) {
 
 # sample clustering ------------------------------------------------------------
 sampleTree <- hclust(dist(datExpr), method = "average")
-plot(sampleTree, main = "Sample clustering", sub = "", xlab = "") # saved in visuals
+plot(sampleTree, main = "Sample clustering", sub = "", xlab = "") 
 
 
-# choosing threshold -----------------------------------------------------------
+# choose soft threshold --------------------------------------------------------
 powers <- c(1:20)
 sft <- pickSoftThreshold(datExpr, powerVector = powers, verbose = 5)
 plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
@@ -33,10 +38,8 @@ plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
 text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
      labels=powers, cex=0.9, col="red")
 
-# 5 power is right at 0.8 but 6 is above 0.8 
-# so choosing 6 for soft threshold power 
-
-# setting chosen power as 6 
+# choose power according to scale-free topology fit index plot from above 
+# look for the lowest power where the curve flattens out and reaches a model fit index of around 0.8
 chosen_power = 6
 
 # build network and identify modules -------------------------------------------
@@ -47,34 +50,28 @@ net <- blockwiseModules(datExpr, power = chosen_power,
                         saveTOMs = TRUE, saveTOMFileBase = "TOM",
                         verbose = 3)
 
-names(net)
-
 # save net as rds
 saveRDS(net, "WGCNAnet.rds")
-
 
 # plot modules 
 moduleColors <- labels2colors(net$colors)
 plotDendroAndColors(net$dendrograms[[1]], moduleColors[net$blockGenes[[1]]],
                     "Module colors", dendroLabels = FALSE, hang = 0.03)
 
-# save module assignments
+# save gene module assignments
 geneModules <- data.frame(Gene = colnames(datExpr), Module = moduleColors)
 write.csv(geneModules, "WGCNAgenemodules.csv", row.names = FALSE)
 
 # one-hot encoding -------------------------------------------------------------
 
 # construct trait matrix 
-# load 'groups' variable from DEanalysis_prep script
-traitData <- data.frame(
-  MW = ifelse(groups == "MW", 1, 0),
-  FW = ifelse(groups == "FW", 1, 0),
-  MC = ifelse(groups == "MC", 1, 0),
-  FC = ifelse(groups == "FC", 1, 0)
-)
+group_labels <- unique(groups)
+traitData <- sapply(group_labels, function(label) as.integer(groups == label))
+traitData <- as.data.frame(traitData)
 
 rownames(traitData) <- rownames(datExpr)
 
+# correlate modules with traits 
 moduleTraitCor <- cor(net$MEs, traitData, use = "p")
 moduleTraitPval <- corPvalueStudent(moduleTraitCor, nSamples = nrow(datExpr))
 
@@ -131,9 +128,9 @@ dev.off()
 
 
 
-# binary traits ----------------------------------------------------------------
+# binary traits (if applicable) ---------------------------------------------------
 
-# extract traits 
+# example of binary parsing  
 sex <- substr(groups, 1, 1) 
 treatment <- substr(groups, 2, 2)
 
